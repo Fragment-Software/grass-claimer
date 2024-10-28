@@ -9,7 +9,6 @@ pub struct GrassApiResponse<T> {
 
 #[derive(Deserialize)]
 pub struct Allocation {
-    #[serde(flatten)]
     pub dynamic_fields: HashMap<String, f64>,
 }
 
