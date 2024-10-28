@@ -8,8 +8,6 @@ const CONFIG_FILE_PATH: &str = "data/config.toml";
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub struct Config {
     pub solana_rpc_url: String,
-    pub use_jito: bool,
-    pub jito_block_engine_url: String,
     pub withdraw_to_cex: bool,
     pub mobile_proxies: bool,
     pub swap_ip_link: String,

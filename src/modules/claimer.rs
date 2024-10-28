@@ -20,7 +20,6 @@ use crate::{
         schemas::{ClaimProofEntry, GrassApiResponse, Receipt},
         typedefs::Cluster,
     },
-    jito::api::send_and_confirm_bundle,
     onchain::{
         constants::{CLAIM_PROGRAM_ID, GRASS_PUBKEY, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID},
         derive::{derive_ata, derive_claim_status, derive_merkle_distributor},
@@ -273,19 +272,7 @@ async fn process_account(
         recent_blockhash,
     );
 
-    match config.use_jito {
-        true => {
-            send_and_confirm_bundle(
-                tx,
-                &config.jito_block_engine_url,
-                None,
-                None,
-                proxy.as_ref(),
-            )
-            .await?;
-        }
-        false => send_and_confirm_tx(provider, tx, &recent_blockhash).await?,
-    }
+    send_and_confirm_tx(provider, tx, &recent_blockhash).await?;
 
     Ok(())
 }

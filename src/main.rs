@@ -4,7 +4,6 @@ use utils::logger::init_default_logger;
 mod config;
 mod db;
 mod getgrass;
-mod jito;
 mod modules;
 mod onchain;
 mod utils;
