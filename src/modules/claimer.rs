@@ -54,6 +54,7 @@ pub async fn claim_grass(mut db: Database, config: &Config) -> eyre::Result<()> 
 
     Ok(())
 }
+
 fn prepare_proof(claim_proof_json: &str) -> Vec<[u8; 32]> {
     if let Ok(claim_proof_array) = serde_json::from_str::<Vec<ClaimProofEntry>>(claim_proof_json) {
         claim_proof_array
@@ -99,6 +100,7 @@ fn extract_version_and_proof(
         .as_ref()
         .ok_or_else(|| eyre::eyre!("Claim proof is missing in the receipt data"))?;
     let proof = prepare_proof(claim_proof);
+
     let allocation = data
         .allocation
         .as_ref()
@@ -134,9 +136,7 @@ async fn get_ixs(
 
     let mut ixs = vec![];
 
-    ixs.push(ComputeBudgetInstruction::set_compute_unit_price(
-        config.compute_unit_price,
-    ));
+    ixs.push(ComputeBudgetInstruction::set_compute_unit_price(2000000));
 
     let token_ata_exist = provider.get_account_data(&token_ata).await.is_ok();
 
