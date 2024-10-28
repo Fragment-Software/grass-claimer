@@ -15,7 +15,9 @@ pub struct Allocation {
 
 #[derive(Deserialize, Debug)]
 pub struct ReceiptData {
+    #[serde(rename = "versionNumber")]
     pub version_number: Option<u32>,
+    #[serde(rename = "claimProof")]
     pub claim_proof: Option<String>, // json string
 }
 
