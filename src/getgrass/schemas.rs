@@ -1,15 +1,8 @@
-use std::collections::HashMap;
-
 use serde::Deserialize;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct GrassApiResponse<T> {
     pub result: Option<T>,
-}
-
-#[derive(Deserialize)]
-pub struct Allocation {
-    pub dynamic_fields: HashMap<String, f64>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -28,7 +21,7 @@ pub struct Receipt {
 
 #[derive(Deserialize, Debug)]
 pub struct ClaimProofEntry {
-    pub position: String,
+    _position: String,
     pub data: BufferData,
 }
 
@@ -37,9 +30,4 @@ pub struct BufferData {
     #[serde(rename = "type")]
     pub type_: String,
     pub data: Vec<u8>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct InnerData {
-    pub data: String,
 }

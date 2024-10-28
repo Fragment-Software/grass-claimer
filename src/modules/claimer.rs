@@ -16,7 +16,7 @@ use crate::{
     config::Config,
     db::{account::Account, database::Database},
     getgrass::{
-        api::{get_allocation, get_receipt},
+        api::get_receipt,
         schemas::{ClaimProofEntry, GrassApiResponse, Receipt},
         typedefs::Cluster,
     },
@@ -41,7 +41,10 @@ pub async fn claim_grass(mut db: Database, config: &Config) -> eyre::Result<()> 
     );
 
     while let Some(account) = db.get_random_account_with_filter(|a| !a.get_claimed()) {
-        process_account(&provider, account, config).await?;
+        if let Err(e) = process_account(&provider, account, config).await {
+            tracing::error!("{}", e);
+            return Ok(());
+        };
 
         account.set_claimed(true);
         db.update();
@@ -113,15 +116,9 @@ async fn get_ixs(
     cex_pubkey: &Pubkey,
     config: &Config,
 ) -> eyre::Result<Option<Vec<Instruction>>> {
-    tracing::info!("{}", version_number);
-
     let (merkle_distributor_pubkey, _) = derive_merkle_distributor(version_number);
 
-    tracing::info!("{}", merkle_distributor_pubkey);
-
     let (claim_status_pubkey, _) = derive_claim_status(wallet_pubkey, &merkle_distributor_pubkey);
-
-    tracing::info!("{}", claim_status_pubkey);
 
     if let Ok(claim_status_data) = provider.get_account_data(&claim_status_pubkey).await {
         let claim_status = ClaimStatus::deserialize(&mut &claim_status_data[8..])?;
@@ -130,21 +127,15 @@ async fn get_ixs(
             tracing::info!("Already claimed");
             return Ok(None);
         }
-    };
+    }
 
     let (token_vault, _) = derive_ata(&merkle_distributor_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
 
-    tracing::info!("{}", token_vault);
-
     let (token_ata, _) = derive_ata(wallet_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
-
-    tracing::info!("{}", token_ata);
 
     let mut ixs = vec![];
 
     let token_ata_exist = provider.get_account_data(&token_ata).await.is_ok();
-
-    tracing::info!("{}", token_ata_exist);
 
     if !token_ata_exist {
         let create_ata_args = CreateAtaArgs {
@@ -271,7 +262,11 @@ async fn process_account(
 
     let receipt = get_receipt(&wallet_pubkey.to_string(), Cluster::Mainnet, proxy.as_ref()).await?;
     let (version_number, proof, allocation) = extract_version_and_proof(&receipt)?;
-    account.set_allocation(allocation as f64);
+
+    let alloc = (allocation as f64) / 10f64.powi(9);
+
+    account.set_allocation(alloc);
+    tracing::info!("Amount to claim: {}", alloc);
 
     let instructions = match get_ixs(
         provider,
