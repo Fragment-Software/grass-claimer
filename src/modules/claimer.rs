@@ -5,6 +5,7 @@ use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcSendTrans
 use solana_program::hash::Hash;
 use solana_sdk::{
     commitment_config::{CommitmentConfig, CommitmentLevel},
+    compute_budget::ComputeBudgetInstruction,
     instruction::Instruction,
     pubkey::Pubkey,
     signer::Signer,
@@ -134,6 +135,10 @@ async fn get_ixs(
     let (token_ata, _) = derive_ata(wallet_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
 
     let mut ixs = vec![];
+
+    ixs.push(ComputeBudgetInstruction::set_compute_unit_price(
+        config.compute_unit_price,
+    ));
 
     let token_ata_exist = provider.get_account_data(&token_ata).await.is_ok();
 
