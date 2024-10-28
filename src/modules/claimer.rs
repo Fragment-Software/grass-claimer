@@ -116,6 +116,7 @@ async fn get_ixs(
     allocation: u64,
     wallet_pubkey: &Pubkey,
     cex_pubkey: &Pubkey,
+    payer: &Pubkey,
     config: &Config,
 ) -> eyre::Result<Option<Vec<Instruction>>> {
     let (merkle_distributor_pubkey, _) = derive_merkle_distributor(version_number);
@@ -145,7 +146,7 @@ async fn get_ixs(
 
     if !token_ata_exist {
         let create_ata_args = CreateAtaArgs {
-            funding_address: *wallet_pubkey,
+            funding_address: *payer,
             associated_account_address: token_ata,
             wallet_address: *wallet_pubkey,
             token_mint_address: GRASS_PUBKEY,
@@ -181,7 +182,7 @@ async fn get_ixs(
 
         if !token_ata_exist {
             let create_ata_args = CreateAtaArgs {
-                funding_address: *wallet_pubkey,
+                funding_address: *payer,
                 associated_account_address: dest_ata,
                 wallet_address: *cex_pubkey,
                 token_mint_address: GRASS_PUBKEY,
@@ -265,11 +266,11 @@ async fn process_account(
     };
 
     let signing_keypairs = match config.use_external_fee_pay {
-        true => vec![&payer_kp, &wallet],
+        true => vec![&wallet, &payer_kp],
         false => vec![&payer_kp],
     };
 
-    tracing::info!("Wallet address: `{}`", payer_kp.pubkey());
+    tracing::info!("Wallet address: `{}`", wallet.pubkey());
 
     if config.mobile_proxies {
         tracing::info!("Changing IP address");
@@ -291,6 +292,7 @@ async fn process_account(
         allocation,
         &wallet_pubkey,
         &cex_pubkey,
+        &payer_kp.pubkey(),
         config,
     )
     .await?
