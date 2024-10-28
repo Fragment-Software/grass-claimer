@@ -269,24 +269,9 @@ async fn process_account(
         swap_ip_address(&config.swap_ip_link).await?;
     }
 
-    let allocation = get_allocation(&wallet_pubkey.to_string(), proxy.as_ref()).await?;
-
-    let total = match allocation.result {
-        Some(ref alloc) => alloc
-            .dynamic_fields
-            .values()
-            .fold(0f64, |sum, &value| sum + value),
-        None => {
-            tracing::warn!("Wallet is ineligible");
-            return Ok(());
-        }
-    };
-
-    account.set_allocation(total);
-    tracing::info!("Amount to claim: {}", total);
-
     let receipt = get_receipt(&wallet_pubkey.to_string(), Cluster::Mainnet, proxy.as_ref()).await?;
     let (version_number, proof, allocation) = extract_version_and_proof(&receipt)?;
+    account.set_allocation(allocation as f64);
 
     let instructions = match get_ixs(
         provider,
