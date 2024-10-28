@@ -54,27 +54,32 @@ pub async fn claim_grass(mut db: Database, config: &Config) -> eyre::Result<()> 
 
 fn prepare_proof(claim_proof_json: &str) -> Vec<[u8; 32]> {
     if let Ok(claim_proof_array) = serde_json::from_str::<Vec<ClaimProofEntry>>(claim_proof_json) {
-        return claim_proof_array
+        claim_proof_array
             .into_iter()
             .filter_map(|entry| {
-                let mut buffer = [0u8; 32];
-                let data_bytes = entry.data.data.into_bytes();
-
-                if data_bytes.len() <= 32 {
-                    buffer[..data_bytes.len()].copy_from_slice(&data_bytes);
-                    Some(buffer)
-                } else {
-                    None
+                if entry.data.type_ != "Buffer" {
+                    return None;
                 }
+
+                let data_bytes = entry.data.data;
+
+                if data_bytes.len() != 32 {
+                    return None;
+                }
+
+                let mut buffer = [0u8; 32];
+                buffer.copy_from_slice(&data_bytes);
+                Some(buffer)
             })
-            .collect();
+            .collect()
+    } else {
+        Vec::new()
     }
-    Vec::new()
 }
 
 fn extract_version_and_proof(
     receipt: &GrassApiResponse<Receipt>,
-) -> eyre::Result<(u32, Vec<[u8; 32]>)> {
+) -> eyre::Result<(u32, Vec<[u8; 32]>, u64)> {
     let result = receipt
         .result
         .as_ref()
@@ -92,35 +97,54 @@ fn extract_version_and_proof(
         .as_ref()
         .ok_or_else(|| eyre::eyre!("Claim proof is missing in the receipt data"))?;
     let proof = prepare_proof(claim_proof);
-    Ok((*version_number, proof))
+    let allocation = data
+        .allocation
+        .as_ref()
+        .ok_or_else(|| eyre::eyre!("Allocation is missing in the receipt data"))?;
+    Ok((*version_number, proof, *allocation))
 }
 
 async fn get_ixs(
     provider: &RpcClient,
     version_number: u32,
     proof: Vec<[u8; 32]>,
+    allocation: u64,
     wallet_pubkey: &Pubkey,
     cex_pubkey: &Pubkey,
     config: &Config,
 ) -> eyre::Result<Option<Vec<Instruction>>> {
+    tracing::info!("{}", version_number);
+
     let (merkle_distributor_pubkey, _) = derive_merkle_distributor(version_number);
+
+    tracing::info!("{}", merkle_distributor_pubkey);
+
     let (claim_status_pubkey, _) = derive_claim_status(wallet_pubkey, &merkle_distributor_pubkey);
 
-    let claim_status_data = provider.get_account_data(&claim_status_pubkey).await?;
-    let claim_status = ClaimStatus::deserialize(&mut &claim_status_data[8..])?;
+    tracing::info!("{}", claim_status_pubkey);
 
-    if claim_status.allocation == claim_status.sent_allocation {
-        tracing::info!("Already claimed");
-        return Ok(None);
-    }
+    if let Ok(claim_status_data) = provider.get_account_data(&claim_status_pubkey).await {
+        let claim_status = ClaimStatus::deserialize(&mut &claim_status_data[8..])?;
+
+        if claim_status.allocation == claim_status.sent_allocation {
+            tracing::info!("Already claimed");
+            return Ok(None);
+        }
+    };
 
     let (token_vault, _) = derive_ata(&merkle_distributor_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
 
+    tracing::info!("{}", token_vault);
+
     let (token_ata, _) = derive_ata(wallet_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
+
+    tracing::info!("{}", token_ata);
 
     let mut ixs = vec![];
 
     let token_ata_exist = provider.get_account_data(&token_ata).await.is_ok();
+
+    tracing::info!("{}", token_ata_exist);
 
     if !token_ata_exist {
         let create_ata_args = CreateAtaArgs {
@@ -145,7 +169,7 @@ async fn get_ixs(
         claimant: *wallet_pubkey,
         token_program: TOKEN_PROGRAM_ID,
         system_program: SYSTEM_PROGRAM_ID,
-        allocation: claim_status.allocation,
+        allocation,
         proof,
     };
 
@@ -155,7 +179,9 @@ async fn get_ixs(
 
     if config.withdraw_to_cex {
         let (dest_ata, _) = derive_ata(cex_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
+
         let token_ata_exist = provider.get_account_data(&dest_ata).await.is_ok();
+
         if !token_ata_exist {
             let create_ata_args = CreateAtaArgs {
                 funding_address: *wallet_pubkey,
@@ -165,6 +191,7 @@ async fn get_ixs(
                 token_program_id: TOKEN_PROGRAM_ID,
                 instruction: 0,
             };
+
             ixs.push(Instructions::create_ata(create_ata_args));
         }
 
@@ -174,7 +201,7 @@ async fn get_ixs(
             &dest_ata,
             wallet_pubkey,
             &[wallet_pubkey],
-            claim_status.allocation,
+            allocation,
         )?;
 
         ixs.push(transfer_ix);
@@ -259,12 +286,13 @@ async fn process_account(
     tracing::info!("Amount to claim: {}", total);
 
     let receipt = get_receipt(&wallet_pubkey.to_string(), Cluster::Mainnet, proxy.as_ref()).await?;
-    let (version_number, proof) = extract_version_and_proof(&receipt)?;
+    let (version_number, proof, allocation) = extract_version_and_proof(&receipt)?;
 
     let instructions = match get_ixs(
         provider,
         version_number,
         proof,
+        allocation,
         &wallet_pubkey,
         &cex_pubkey,
         config,

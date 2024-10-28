@@ -19,6 +19,7 @@ pub struct ReceiptData {
     pub version_number: Option<u32>,
     #[serde(rename = "claimProof")]
     pub claim_proof: Option<String>, // json string
+    pub allocation: Option<u64>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -28,7 +29,15 @@ pub struct Receipt {
 
 #[derive(Deserialize, Debug)]
 pub struct ClaimProofEntry {
-    pub data: InnerData,
+    pub position: String,
+    pub data: BufferData,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct BufferData {
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub data: Vec<u8>,
 }
 
 #[derive(Deserialize, Debug)]
