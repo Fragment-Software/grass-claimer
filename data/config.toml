@@ -1,0 +1,7 @@
+SOLANA_RPC_URL = ""         # rpc url
+USE_JITO = false            # whether to send tx as a jito bundle
+JITO_BLOCK_ENGINE_URL = ""  # jito block engine url
+WITHDRAW_TO_CEX = true      # withdraw allocation to external address
+MOBILE_PROXIES = false      # whether you're using mobile proxies or not
+SWAP_IP_LINK = ""           # if you're using mobile proxies put the change ip link in here
+CLAIM_SLEEP_RANGE = [4, 10] # sleep range between each claim (seconds)
