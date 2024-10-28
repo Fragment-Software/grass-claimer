@@ -136,7 +136,9 @@ async fn get_ixs(
 
     let mut ixs = vec![];
 
-    ixs.push(ComputeBudgetInstruction::set_compute_unit_price(2000000));
+    ixs.push(ComputeBudgetInstruction::set_compute_unit_price(
+        config.compute_unit_price,
+    ));
 
     let token_ata_exist = provider.get_account_data(&token_ata).await.is_ok();
 
