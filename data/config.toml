@@ -4,3 +4,5 @@ MOBILE_PROXIES = false      # whether you're using mobile proxies or not
 SWAP_IP_LINK = ""           # if you're using mobile proxies put the change ip link in here
 CLAIM_SLEEP_RANGE = [4, 10] # sleep range between each claim (seconds)
 COMPUTE_UNIT_PRICE = 200000
+USE_EXTERNAL_FEE_PAY = true
+EXTERNAL_FEE_PAYER_PK = ""

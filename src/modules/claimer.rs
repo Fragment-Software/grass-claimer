@@ -8,6 +8,7 @@ use solana_sdk::{
     compute_budget::ComputeBudgetInstruction,
     instruction::Instruction,
     pubkey::Pubkey,
+    signature::Keypair,
     signer::Signer,
     transaction::Transaction,
 };
@@ -258,7 +259,17 @@ async fn process_account(
     let cex_pubkey = Pubkey::from_str(account.get_cex_address()).expect("Invalid CEX address");
     let proxy = account.proxy();
 
-    tracing::info!("Wallet address: `{}`", wallet.pubkey());
+    let payer_kp = match config.use_external_fee_pay {
+        true => Keypair::from_base58_string(&config.external_fee_payer_pk),
+        false => wallet.insecure_clone(),
+    };
+
+    let signing_keypairs = match config.use_external_fee_pay {
+        true => vec![&payer_kp, &wallet],
+        false => vec![&payer_kp],
+    };
+
+    tracing::info!("Wallet address: `{}`", payer_kp.pubkey());
 
     if config.mobile_proxies {
         tracing::info!("Changing IP address");
@@ -294,8 +305,8 @@ async fn process_account(
 
     let tx = Transaction::new_signed_with_payer(
         &instructions,
-        Some(&wallet_pubkey),
-        &[&wallet],
+        Some(&payer_kp.pubkey()),
+        &signing_keypairs,
         recent_blockhash,
     );
 

@@ -18,16 +18,6 @@ pub struct AllocationQuery {
     wallet_address: String,
 }
 
-impl AllocationQuery {
-    pub fn to_string(wallet_address: &str) -> eyre::Result<String, serde_json::Error> {
-        let query = Self {
-            wallet_address: wallet_address.to_string(),
-        };
-
-        serde_json::to_string(&query)
-    }
-}
-
 #[derive(Serialize)]
 pub struct ReceiptQuery {
     #[serde(rename = "walletAddress")]

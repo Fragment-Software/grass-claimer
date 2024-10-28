@@ -21,7 +21,6 @@ pub struct Receipt {
 
 #[derive(Deserialize, Debug)]
 pub struct ClaimProofEntry {
-    position: String,
     pub data: BufferData,
 }
 
