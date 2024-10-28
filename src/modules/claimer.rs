@@ -44,7 +44,6 @@ pub async fn claim_grass(mut db: Database, config: &Config) -> eyre::Result<()> 
     while let Some(account) = db.get_random_account_with_filter(|a| !a.get_claimed()) {
         if let Err(e) = process_account(&provider, account, config).await {
             tracing::error!("{}", e);
-            return Ok(());
         };
 
         account.set_claimed(true);
