@@ -44,17 +44,16 @@ pub async fn claim_grass(mut db: Database, config: &Config) -> eyre::Result<()> 
     while let Some(account) = db.get_random_account_with_filter(|a| !a.get_claimed()) {
         if let Err(e) = process_account(&provider, account, config).await {
             tracing::error!("{}", e);
+        } else {
+            account.set_claimed(true);
+            db.update();
         };
-
-        account.set_claimed(true);
-        db.update();
 
         pretty_sleep(config.claim_sleep_range).await;
     }
 
     Ok(())
 }
-
 fn prepare_proof(claim_proof_json: &str) -> Vec<[u8; 32]> {
     if let Ok(claim_proof_array) = serde_json::from_str::<Vec<ClaimProofEntry>>(claim_proof_json) {
         claim_proof_array
