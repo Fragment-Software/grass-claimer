@@ -154,10 +154,24 @@ async fn get_ixs(
     ixs.push(claim_ix);
 
     if config.withdraw_to_cex {
+        let (dest_ata, _) = derive_ata(cex_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
+        let token_ata_exist = provider.get_account_data(&dest_ata).await.is_ok();
+        if !token_ata_exist {
+            let create_ata_args = CreateAtaArgs {
+                funding_address: *wallet_pubkey,
+                associated_account_address: dest_ata,
+                wallet_address: *cex_pubkey,
+                token_mint_address: GRASS_PUBKEY,
+                token_program_id: TOKEN_PROGRAM_ID,
+                instruction: 0,
+            };
+            ixs.push(Instructions::create_ata(create_ata_args));
+        }
+
         let transfer_ix = spl_token::instruction::transfer(
             &TOKEN_PROGRAM_ID,
             &token_ata,
-            cex_pubkey,
+            &dest_ata,
             wallet_pubkey,
             &[wallet_pubkey],
             claim_status.allocation,
