@@ -10,7 +10,7 @@ use crate::{
     config::Config,
     db::{account::Account, database::Database},
     onchain::tx::send_and_confirm_tx,
-    utils::misc::{pretty_sleep, swap_ip_address},
+    utils::misc::pretty_sleep,
 };
 
 pub async fn collect_sol(mut db: Database, config: &Config) -> eyre::Result<()> {
@@ -38,35 +38,15 @@ async fn get_ixs(
     provider: &RpcClient,
     wallet_pubkey: &Pubkey,
     collector_pubkey: &Pubkey,
-    payer_pubkey: &Pubkey,
 ) -> eyre::Result<Option<Vec<Instruction>>> {
     let mut ixs = vec![];
 
-    let rent = provider.get_minimum_balance_for_rent_exemption(0).await?;
     let balance = provider.get_balance(wallet_pubkey).await?;
-
-    let additional_fee = if payer_pubkey == wallet_pubkey {
-        205000
-    } else {
-        210000
-    };
-
-    if balance <= rent + additional_fee {
-        tracing::warn!("Insufficient funds for transfer");
-        return Ok(None);
-    }
-
-    let amount_to_withdraw = balance - rent - additional_fee;
-
-    if amount_to_withdraw == 0 {
-        tracing::warn!("Insufficient funds after accounting for rent and fees");
-        return Ok(None);
-    }
 
     ixs.push(solana_sdk::system_instruction::transfer(
         wallet_pubkey,
         collector_pubkey,
-        amount_to_withdraw,
+        balance,
     ));
 
     Ok(Some(ixs))
@@ -83,11 +63,6 @@ async fn process_account(
 
     tracing::info!("Wallet address: `{}`", wallet.pubkey());
 
-    if config.mobile_proxies {
-        tracing::info!("Changing IP address");
-        swap_ip_address(&config.swap_ip_link).await?;
-    }
-
     let payer_kp = match config.use_external_fee_pay {
         true => Keypair::from_base58_string(&config.external_fee_payer_pk),
         false => wallet.insecure_clone(),
@@ -98,14 +73,7 @@ async fn process_account(
         false => vec![&wallet],
     };
 
-    let instructions = match get_ixs(
-        provider,
-        &wallet_pubkey,
-        &collector_pubkey,
-        &payer_kp.pubkey(),
-    )
-    .await?
-    {
+    let instructions = match get_ixs(provider, &wallet_pubkey, &collector_pubkey).await? {
         Some(ixs) => ixs,
         None => return Ok(()),
     };

@@ -15,7 +15,7 @@ use crate::{
         ixs::Instructions,
         tx::send_and_confirm_tx,
     },
-    utils::misc::{pretty_sleep, swap_ip_address},
+    utils::misc::pretty_sleep,
 };
 
 pub async fn close_accounts(mut db: Database, config: &Config) -> eyre::Result<()> {
@@ -84,11 +84,6 @@ async fn process_account(
     let wallet_pubkey = account.get_pubkey();
 
     tracing::info!("Wallet address: `{}`", wallet.pubkey());
-
-    if config.mobile_proxies {
-        tracing::info!("Changing IP address");
-        swap_ip_address(&config.swap_ip_link).await?;
-    }
 
     let payer_kp = match config.use_external_fee_pay {
         true => Keypair::from_base58_string(&config.external_fee_payer_pk),
