@@ -12,7 +12,6 @@ pub struct Config {
     pub mobile_proxies: bool,
     pub swap_ip_link: String,
     pub claim_sleep_range: [u64; 2],
-    pub compute_unit_price: u64,
     pub use_external_fee_pay: bool,
     pub external_fee_payer_pk: String,
 }

@@ -1,8 +1,10 @@
 mod claimer;
+mod closer;
 
 use crate::{config::Config, db::database::Database};
 
 use claimer::claim_grass;
+use closer::close_accounts;
 use dialoguer::{theme::ColorfulTheme, Select};
 
 const LOGO: &str = r#"
@@ -31,8 +33,9 @@ pub async fn menu() -> eyre::Result<()> {
 
     loop {
         let options = vec![
-            "Generate a database for a new session",
+            "Generate a database for a session",
             "Claim Grass",
+            "Close Grass ATA",
             "Exit",
         ];
 
@@ -53,6 +56,10 @@ pub async fn menu() -> eyre::Result<()> {
                 claim_grass(db, &config).await?;
             }
             2 => {
+                let db = Database::read().await;
+                close_accounts(db, &config).await?;
+            }
+            3 => {
                 return Ok(());
             }
             _ => tracing::error!("Invalid selection"),

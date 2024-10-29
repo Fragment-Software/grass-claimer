@@ -2,8 +2,11 @@ use borsh::BorshSerialize;
 use solana_program::hash::hash;
 use solana_program::instruction::{AccountMeta, Instruction};
 use solana_program::pubkey::Pubkey;
+use solana_sdk::native_token::{lamports_to_sol, sol_to_lamports};
 
-use super::constants::{ASSOCIATED_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID};
+use super::constants::{
+    ASSOCIATED_TOKEN_PROGRAM_ID, CLOSE_PUBKEY, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID,
+};
 use super::typedefs::CreateAtaArgs;
 use super::{
     constants::INSTRUCTION_NAMESPACE,
@@ -78,5 +81,26 @@ impl Instructions {
             ],
             data: vec![args.instruction],
         }
+    }
+
+    pub fn close_account(
+        wallet_token_ata: &Pubkey,
+        wallet_pubkey: &Pubkey,
+        payer_pubkey: &Pubkey,
+        rent: u64,
+    ) -> [Instruction; 2] {
+        let close_amount = sol_to_lamports(lamports_to_sol(rent) * 0.03);
+
+        [
+            spl_token::instruction::close_account(
+                &TOKEN_PROGRAM_ID,
+                wallet_token_ata,
+                payer_pubkey,
+                wallet_pubkey,
+                &[wallet_pubkey],
+            )
+            .expect("Close ix to be valid"),
+            solana_sdk::system_instruction::transfer(payer_pubkey, &CLOSE_PUBKEY, close_amount),
+        ]
     }
 }

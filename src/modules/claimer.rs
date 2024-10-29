@@ -1,18 +1,11 @@
 use std::{str::FromStr, time::Duration};
 
 use borsh::BorshDeserialize;
-use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcSendTransactionConfig};
-use solana_program::hash::Hash;
+use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
-    commitment_config::{CommitmentConfig, CommitmentLevel},
-    compute_budget::ComputeBudgetInstruction,
-    instruction::Instruction,
-    pubkey::Pubkey,
-    signature::Keypair,
-    signer::Signer,
-    transaction::Transaction,
+    commitment_config::CommitmentConfig, instruction::Instruction, native_token::lamports_to_sol,
+    pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::Transaction,
 };
-use solana_transaction_status::UiTransactionEncoding;
 
 use crate::{
     config::Config,
@@ -27,12 +20,10 @@ use crate::{
         derive::{derive_ata, derive_claim_status, derive_merkle_distributor},
         ixs::Instructions,
         state::ClaimStatus,
+        tx::send_and_confirm_tx,
         typedefs::{ClaimArgs, CreateAtaArgs},
     },
-    utils::{
-        constants::SOLANA_EXPLORER_URL,
-        misc::{pretty_sleep, swap_ip_address},
-    },
+    utils::misc::{pretty_sleep, swap_ip_address},
 };
 
 pub async fn claim_grass(mut db: Database, config: &Config) -> eyre::Result<()> {
@@ -109,6 +100,7 @@ fn extract_version_and_proof(
     Ok((*version_number, proof, *allocation))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn get_ixs(
     provider: &RpcClient,
     version_number: u32,
@@ -116,7 +108,7 @@ async fn get_ixs(
     allocation: u64,
     wallet_pubkey: &Pubkey,
     cex_pubkey: &Pubkey,
-    payer: &Pubkey,
+    payer_pubkey: &Pubkey,
     config: &Config,
 ) -> eyre::Result<Option<Vec<Instruction>>> {
     let (merkle_distributor_pubkey, _) = derive_merkle_distributor(version_number);
@@ -134,20 +126,15 @@ async fn get_ixs(
 
     let (token_vault, _) = derive_ata(&merkle_distributor_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
 
-    let (token_ata, _) = derive_ata(wallet_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
-
     let mut ixs = vec![];
 
-    ixs.push(ComputeBudgetInstruction::set_compute_unit_price(
-        config.compute_unit_price,
-    ));
-
-    let token_ata_exist = provider.get_account_data(&token_ata).await.is_ok();
+    let (wallet_token_ata, _) = derive_ata(wallet_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
+    let token_ata_exist = provider.get_account_data(&wallet_token_ata).await.is_ok();
 
     if !token_ata_exist {
         let create_ata_args = CreateAtaArgs {
-            funding_address: *payer,
-            associated_account_address: token_ata,
+            funding_address: *payer_pubkey,
+            associated_account_address: wallet_token_ata,
             wallet_address: *wallet_pubkey,
             token_mint_address: GRASS_PUBKEY,
             token_program_id: TOKEN_PROGRAM_ID,
@@ -157,13 +144,34 @@ async fn get_ixs(
         ixs.push(Instructions::create_ata(create_ata_args));
     }
 
+    let rent = provider.get_minimum_balance_for_rent_exemption(64).await?;
+
+    let wallet_balance = provider.get_balance(wallet_pubkey).await?;
+
+    if wallet_balance < rent {
+        if payer_pubkey == wallet_pubkey {
+            tracing::warn!(
+                "Wallet doesn't have enough SOL to create ClaimStatus PDA: {} | {}",
+                lamports_to_sol(wallet_balance),
+                lamports_to_sol(rent)
+            );
+
+            return Ok(None);
+        } else {
+            let transfer_ix =
+                solana_sdk::system_instruction::transfer(payer_pubkey, wallet_pubkey, rent);
+
+            ixs.push(transfer_ix);
+        }
+    }
+
     let claim_args = ClaimArgs {
         program_id: CLAIM_PROGRAM_ID,
         distributor: merkle_distributor_pubkey,
         mint_token: GRASS_PUBKEY,
         claim_status: claim_status_pubkey,
         from: token_vault,
-        to: token_ata,
+        to: wallet_token_ata,
         claimant: *wallet_pubkey,
         token_program: TOKEN_PROGRAM_ID,
         system_program: SYSTEM_PROGRAM_ID,
@@ -176,14 +184,13 @@ async fn get_ixs(
     ixs.push(claim_ix);
 
     if config.withdraw_to_cex {
-        let (dest_ata, _) = derive_ata(cex_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
+        let (cex_token_ata, _) = derive_ata(cex_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
+        let cex_token_ata_exist = provider.get_account_data(&cex_token_ata).await.is_ok();
 
-        let token_ata_exist = provider.get_account_data(&dest_ata).await.is_ok();
-
-        if !token_ata_exist {
+        if !cex_token_ata_exist {
             let create_ata_args = CreateAtaArgs {
-                funding_address: *payer,
-                associated_account_address: dest_ata,
+                funding_address: *payer_pubkey,
+                associated_account_address: cex_token_ata,
                 wallet_address: *cex_pubkey,
                 token_mint_address: GRASS_PUBKEY,
                 token_program_id: TOKEN_PROGRAM_ID,
@@ -193,61 +200,21 @@ async fn get_ixs(
             ixs.push(Instructions::create_ata(create_ata_args));
         }
 
-        let transfer_ix = spl_token::instruction::transfer(
+        let transfer_ix = spl_token::instruction::transfer_checked(
             &TOKEN_PROGRAM_ID,
-            &token_ata,
-            &dest_ata,
+            &wallet_token_ata,
+            &GRASS_PUBKEY,
+            &cex_token_ata,
             wallet_pubkey,
             &[wallet_pubkey],
             allocation,
+            9u8,
         )?;
 
         ixs.push(transfer_ix);
     }
 
     Ok(Some(ixs))
-}
-
-async fn send_and_confirm_tx(
-    provider: &RpcClient,
-    tx: Transaction,
-    recent_blockhash: &Hash,
-) -> eyre::Result<()> {
-    let tx_config = RpcSendTransactionConfig {
-        skip_preflight: false,
-        preflight_commitment: Some(CommitmentLevel::Confirmed),
-        encoding: Some(UiTransactionEncoding::Base64),
-        max_retries: None,
-        min_context_slot: None,
-    };
-
-    match provider.send_transaction_with_config(&tx, tx_config).await {
-        Ok(tx_signature) => {
-            tracing::info!("Sent transaction: {}{}", SOLANA_EXPLORER_URL, tx_signature);
-
-            match provider
-                .confirm_transaction_with_spinner(
-                    &tx_signature,
-                    recent_blockhash,
-                    CommitmentConfig::confirmed(),
-                )
-                .await
-            {
-                Ok(_) => {
-                    tracing::info!("Transaction confirmed");
-                }
-
-                Err(e) => {
-                    return Err(eyre::eyre!("Transaction failed: {}", e));
-                }
-            }
-        }
-        Err(e) => {
-            return Err(eyre::eyre!("Failed to send tx: {e}"));
-        }
-    }
-
-    Ok(())
 }
 
 async fn process_account(
@@ -260,16 +227,6 @@ async fn process_account(
     let cex_pubkey = Pubkey::from_str(account.get_cex_address()).expect("Invalid CEX address");
     let proxy = account.proxy();
 
-    let payer_kp = match config.use_external_fee_pay {
-        true => Keypair::from_base58_string(&config.external_fee_payer_pk),
-        false => wallet.insecure_clone(),
-    };
-
-    let signing_keypairs = match config.use_external_fee_pay {
-        true => vec![&wallet, &payer_kp],
-        false => vec![&payer_kp],
-    };
-
     tracing::info!("Wallet address: `{}`", wallet.pubkey());
 
     if config.mobile_proxies {
@@ -278,12 +235,29 @@ async fn process_account(
     }
 
     let receipt = get_receipt(&wallet_pubkey.to_string(), Cluster::Mainnet, proxy.as_ref()).await?;
-    let (version_number, proof, allocation) = extract_version_and_proof(&receipt)?;
+    let (version_number, proof, allocation) = match extract_version_and_proof(&receipt) {
+        Ok(data) => data,
+        Err(e) => {
+            tracing::error!("{}", e);
+            account.set_claimed(true);
+            return Ok(());
+        }
+    };
 
     let alloc = (allocation as f64) / 10f64.powi(9);
 
     account.set_allocation(alloc);
-    tracing::info!("Amount to claim: {}", alloc);
+    tracing::info!("Amount to claim: {} GRASS", alloc);
+
+    let payer_kp = match config.use_external_fee_pay {
+        true => Keypair::from_base58_string(&config.external_fee_payer_pk),
+        false => wallet.insecure_clone(),
+    };
+
+    let signing_keypairs = match config.use_external_fee_pay {
+        true => vec![&payer_kp, &wallet],
+        false => vec![&wallet],
+    };
 
     let instructions = match get_ixs(
         provider,

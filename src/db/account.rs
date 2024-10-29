@@ -12,6 +12,7 @@ pub struct Account {
     cex_address: String,
     allocation: f64,
     claimed: bool,
+    closed_ata: bool,
 }
 
 impl Account {
@@ -56,5 +57,13 @@ impl Account {
 
     pub fn get_cex_address(&self) -> &str {
         &self.cex_address
+    }
+
+    pub fn get_closed_ata(&self) -> bool {
+        self.closed_ata
+    }
+
+    pub fn set_closed_ata(&mut self, closed: bool) {
+        self.closed_ata = closed
     }
 }

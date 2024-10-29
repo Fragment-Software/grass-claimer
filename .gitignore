@@ -21,3 +21,5 @@ Cargo.lock
 #.idea/
 
 /data/logs
+
+.DS_Store
