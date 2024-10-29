@@ -10,7 +10,7 @@ use crate::{
     config::Config,
     db::{account::Account, database::Database},
     onchain::tx::send_and_confirm_tx,
-    utils::misc::{pretty_sleep, swap_ip_address},
+    utils::misc::pretty_sleep,
 };
 
 pub async fn collect_sol(mut db: Database, config: &Config) -> eyre::Result<()> {
@@ -69,11 +69,6 @@ async fn process_account(
     let collector_pubkey = Pubkey::from_str(&config.collector_pubkey)?;
 
     tracing::info!("Wallet address: `{}`", wallet.pubkey());
-
-    if config.mobile_proxies {
-        tracing::info!("Changing IP address");
-        swap_ip_address(&config.swap_ip_link).await?;
-    }
 
     let payer_kp = match config.use_external_fee_pay {
         true => Keypair::from_base58_string(&config.external_fee_payer_pk),
