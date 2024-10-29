@@ -10,7 +10,7 @@ use crate::{
     config::Config,
     db::{account::Account, database::Database},
     onchain::tx::send_and_confirm_tx,
-    utils::misc::pretty_sleep,
+    utils::misc::{pretty_sleep, swap_ip_address},
 };
 
 pub async fn collect_sol(mut db: Database, config: &Config) -> eyre::Result<()> {
@@ -38,15 +38,22 @@ async fn get_ixs(
     provider: &RpcClient,
     wallet_pubkey: &Pubkey,
     collector_pubkey: &Pubkey,
+    payer_pubkey: &Pubkey,
 ) -> eyre::Result<Option<Vec<Instruction>>> {
     let mut ixs = vec![];
 
     let balance = provider.get_balance(wallet_pubkey).await?;
 
+    let amount_to_withdraw = if payer_pubkey == wallet_pubkey {
+        balance - 5000
+    } else {
+        balance
+    };
+
     ixs.push(solana_sdk::system_instruction::transfer(
         wallet_pubkey,
         collector_pubkey,
-        balance,
+        amount_to_withdraw,
     ));
 
     Ok(Some(ixs))
@@ -63,6 +70,11 @@ async fn process_account(
 
     tracing::info!("Wallet address: `{}`", wallet.pubkey());
 
+    if config.mobile_proxies {
+        tracing::info!("Changing IP address");
+        swap_ip_address(&config.swap_ip_link).await?;
+    }
+
     let payer_kp = match config.use_external_fee_pay {
         true => Keypair::from_base58_string(&config.external_fee_payer_pk),
         false => wallet.insecure_clone(),
@@ -73,7 +85,14 @@ async fn process_account(
         false => vec![&wallet],
     };
 
-    let instructions = match get_ixs(provider, &wallet_pubkey, &collector_pubkey).await? {
+    let instructions = match get_ixs(
+        provider,
+        &wallet_pubkey,
+        &collector_pubkey,
+        &payer_kp.pubkey(),
+    )
+    .await?
+    {
         Some(ixs) => ixs,
         None => return Ok(()),
     };
