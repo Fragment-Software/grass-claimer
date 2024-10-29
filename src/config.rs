@@ -14,6 +14,7 @@ pub struct Config {
     pub claim_sleep_range: [u64; 2],
     pub use_external_fee_pay: bool,
     pub external_fee_payer_pk: String,
+    pub collector_pubkey: String,
 }
 
 impl Config {

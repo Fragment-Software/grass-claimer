@@ -13,6 +13,7 @@ pub struct Account {
     allocation: f64,
     claimed: bool,
     closed_ata: bool,
+    collected_sol: bool,
 }
 
 impl Account {
@@ -65,5 +66,13 @@ impl Account {
 
     pub fn set_closed_ata(&mut self, closed: bool) {
         self.closed_ata = closed
+    }
+
+    pub fn get_collected_sol(&self) -> bool {
+        self.collected_sol
+    }
+
+    pub fn set_collected_sol(&mut self, collected_sol: bool) {
+        self.collected_sol = collected_sol
     }
 }
