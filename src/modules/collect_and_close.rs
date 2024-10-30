@@ -2,8 +2,14 @@ use std::{str::FromStr, time::Duration};
 
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
-    commitment_config::CommitmentConfig, instruction::Instruction, program_pack::Pack,
-    pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::Transaction,
+    commitment_config::CommitmentConfig,
+    instruction::Instruction,
+    native_token::{lamports_to_sol, sol_to_lamports},
+    program_pack::Pack,
+    pubkey::Pubkey,
+    signature::Keypair,
+    signer::Signer,
+    transaction::Transaction,
 };
 
 use crate::{
@@ -54,7 +60,17 @@ async fn get_ixs(
     let (wallet_token_ata, _) = derive_ata(wallet_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
     let token_ata_exist = provider.get_account_data(&wallet_token_ata).await.is_ok();
 
+    let mut should_add_rent = false;
+
+    let rent = provider
+        .get_minimum_balance_for_rent_exemption(spl_token::state::Account::LEN)
+        .await?;
+
     if token_ata_exist {
+        if payer_pubkey == wallet_pubkey {
+            should_add_rent = true;
+        }
+
         let token_account = provider
             .get_token_account_balance(&wallet_token_ata)
             .await?;
@@ -94,24 +110,26 @@ async fn get_ixs(
             )?);
         }
 
-        let rent = provider
-            .get_minimum_balance_for_rent_exemption(spl_token::state::Account::LEN)
-            .await?;
-
         let close_ix =
             Instructions::close_account(&wallet_token_ata, wallet_pubkey, payer_pubkey, rent);
 
         ixs.extend_from_slice(&close_ix);
     }
 
-    let balance = provider.get_balance(wallet_pubkey).await?;
+    let mut balance = provider.get_balance(wallet_pubkey).await?;
+
+    balance = if should_add_rent {
+        balance + rent - sol_to_lamports(lamports_to_sol(rent) * 0.03)
+    } else {
+        balance
+    };
 
     if balance <= 5000 {
         tracing::warn!(
             "Wallet doesn't have enough SOL to withdraw: {} | 5001 at least",
             balance
         );
-        return Ok(None);
+        return Ok(Some(ixs));
     }
 
     let amount_to_withdraw = if payer_pubkey == wallet_pubkey {
