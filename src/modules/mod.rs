@@ -1,11 +1,13 @@
 mod claimer;
 mod closer;
+mod collect_and_close;
 mod collector;
 
 use crate::{config::Config, db::database::Database};
 
 use claimer::claim_grass;
 use closer::close_accounts;
+use collect_and_close::collect_and_close;
 use collector::collect_sol;
 use dialoguer::{theme::ColorfulTheme, Select};
 
@@ -39,6 +41,7 @@ pub async fn menu() -> eyre::Result<()> {
             "Claim Grass",
             "Close Grass ATA",
             "Collect SOL",
+            "Collect Grass + Close Grass ATA + Collect SOL",
             "Exit",
         ];
 
@@ -67,6 +70,10 @@ pub async fn menu() -> eyre::Result<()> {
                 collect_sol(db, &config).await?;
             }
             4 => {
+                let db = Database::read().await;
+                collect_and_close(db, &config).await?;
+            }
+            5 => {
                 return Ok(());
             }
             _ => tracing::error!("Invalid selection"),

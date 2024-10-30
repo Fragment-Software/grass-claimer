@@ -2,28 +2,37 @@ use std::{str::FromStr, time::Duration};
 
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
-    commitment_config::CommitmentConfig, instruction::Instruction, pubkey::Pubkey,
-    signature::Keypair, signer::Signer, transaction::Transaction,
+    commitment_config::CommitmentConfig, instruction::Instruction, program_pack::Pack,
+    pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::Transaction,
 };
 
 use crate::{
     config::Config,
     db::{account::Account, database::Database},
-    onchain::tx::send_and_confirm_tx,
+    onchain::{
+        constants::{GRASS_PUBKEY, TOKEN_PROGRAM_ID},
+        derive::derive_ata,
+        ixs::Instructions,
+        tx::send_and_confirm_tx,
+        typedefs::CreateAtaArgs,
+    },
     utils::misc::pretty_sleep,
 };
 
-pub async fn collect_sol(mut db: Database, config: &Config) -> eyre::Result<()> {
+pub async fn collect_and_close(mut db: Database, config: &Config) -> eyre::Result<()> {
     let provider = RpcClient::new_with_timeout_and_commitment(
         config.solana_rpc_url.clone(),
         Duration::from_secs(60),
         CommitmentConfig::processed(),
     );
 
-    while let Some(account) = db.get_random_account_with_filter(|a| !a.get_collected_sol()) {
+    while let Some(account) =
+        db.get_random_account_with_filter(|a| !a.get_collected_sol() || !a.get_closed_ata())
+    {
         if let Err(e) = process_account(&provider, account, config).await {
             tracing::error!("{}", e);
         } else {
+            account.set_closed_ata(true);
             account.set_collected_sol(true);
             db.update();
         };
@@ -41,6 +50,59 @@ async fn get_ixs(
     payer_pubkey: &Pubkey,
 ) -> eyre::Result<Option<Vec<Instruction>>> {
     let mut ixs = vec![];
+
+    let (wallet_token_ata, _) = derive_ata(wallet_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
+    let token_ata_exist = provider.get_account_data(&wallet_token_ata).await.is_ok();
+
+    if token_ata_exist {
+        let token_account = provider
+            .get_token_account_balance(&wallet_token_ata)
+            .await?;
+
+        let token_account_balance = token_account.amount.parse::<u64>()?;
+
+        if token_account_balance != 0 {
+            let (collector_token_ata, _) =
+                derive_ata(collector_pubkey, &GRASS_PUBKEY, &TOKEN_PROGRAM_ID);
+            let collector_token_ata_exist = provider
+                .get_account_data(&collector_token_ata)
+                .await
+                .is_ok();
+
+            if !collector_token_ata_exist {
+                let create_ata_args = CreateAtaArgs {
+                    funding_address: *payer_pubkey,
+                    associated_account_address: collector_token_ata,
+                    wallet_address: *collector_pubkey,
+                    token_mint_address: GRASS_PUBKEY,
+                    token_program_id: TOKEN_PROGRAM_ID,
+                    instruction: 0,
+                };
+
+                ixs.push(Instructions::create_ata(create_ata_args));
+            }
+
+            ixs.push(spl_token::instruction::transfer_checked(
+                &TOKEN_PROGRAM_ID,
+                &wallet_token_ata,
+                &GRASS_PUBKEY,
+                &collector_token_ata,
+                wallet_pubkey,
+                &[wallet_pubkey],
+                token_account_balance,
+                9u8,
+            )?);
+        }
+
+        let rent = provider
+            .get_minimum_balance_for_rent_exemption(spl_token::state::Account::LEN)
+            .await?;
+
+        let close_ix =
+            Instructions::close_account(&wallet_token_ata, wallet_pubkey, payer_pubkey, rent);
+
+        ixs.extend_from_slice(&close_ix);
+    }
 
     let balance = provider.get_balance(wallet_pubkey).await?;
 

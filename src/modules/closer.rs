@@ -60,8 +60,8 @@ async fn get_ixs(
 
     let token_account_balance = token_account.amount.parse::<u64>()?;
 
-    if !token_account_balance == 0 {
-        tracing::warn!("Grass token account balance is not 0");
+    if token_account_balance != 0 {
+        tracing::warn!("Grass token account balance should be 0");
         return Ok(None);
     }
 
